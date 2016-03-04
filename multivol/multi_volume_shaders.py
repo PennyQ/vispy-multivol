@@ -38,6 +38,11 @@
 import textwrap
 
 from vispy.visuals.volume import VERT_SHADER
+try:
+    from textwrap import indent
+except ImportError:  # Python < 3.5
+    def indent(text, prefix):
+        return '\n'.join(prefix + line for line in text.splitlines())
 
 # Fragment shader
 FRAG_SHADER = """
@@ -161,7 +166,7 @@ def get_shaders(n_volume_max):
 
     color_calculation += "color *= 1. / u_n_tex;".format(1. / n_volume_max)
 
-    color_calculation = textwrap.indent(color_calculation, " " * 12)
+    color_calculation = indent(color_calculation, " " * 12)
 
     return VERT_SHADER, FRAG_SHADER.format(declarations=declarations,
                                            color_calculation=color_calculation)
