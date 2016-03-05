@@ -108,6 +108,7 @@ def ellipse_vertice(center, radius, start_angle, span_angle, num_segments):
 class DemoScene(QtGui.QWidget):
     def __init__(self, keys='interactive'):
         super(DemoScene, self).__init__()
+
         # Layout and canvas creation
         box = QtGui.QVBoxLayout(self)
         self.resize(800, 600)
@@ -130,32 +131,35 @@ class DemoScene(QtGui.QWidget):
         # Camera
         self.view = self.canvas.central_widget.add_view()
         self.view.camera = scene.cameras.TurntableCamera(elevation = 25, azimuth=20, distance = 2.0, center=(0,0,0))
-        # Set whether we are emulating a 3D texture
-        emulate_texture = False
 
         # Data
         fitsdata = pyfits.open('l1448_13co.fits')
         vol1 = np.nan_to_num(fitsdata[0].data)
-        mean = np.mean(vol1)  # Use mean value of vol1 as the first threshold
-        self.voldata = vol1
+        self.vol_data = vol1
 
-        # TODO: self.data is coordinates for voxels above a threshold as min_threshold in Glue
-        # TODO: make the self.pos_data as the same shape as vol1
+        """
+        The transpose here and after is for solving the coordinate mismatch between volume visual input data and its
+        rendering result. The rendered volume shown on 2D screen, or 'what we see', is through displaying transform
+        (self.tr here) of 'transposed input data', thus we use 'transpose' to enable our selection focusing on 'what
+        we see' on the screen rather than the real input data of volume.
+
+        """
         new_pos = np.transpose(vol1)
-        # self.pos_data = np.argwhere(vol1 >= np.min(vol1))
-        self.pos_data = np.argwhere(new_pos >= np.min(new_pos))
-        print('self.pos_data', self.pos_data, self.pos_data.shape)
+
+        # TODO: replace the min&max threshold with real settings in Glue UI
+        min_threshold = np.min(self.vol_data)
+        max_threshold = np.max(self.vol_data)
+        self.pos_data = np.argwhere(new_pos >= min_threshold)  # get voxel positions
+
         grays = get_translucent_cmap(1, 1, 1)
-        self.volume_pool = [(vol1, (0, 4), grays)]
-        # self.volume = MultiVolume(self.volume_pool)
-        self.volume = scene.visuals.Volume(vol1, parent=self.view.scene)
+
+        self.volume_pool = [(vol1, (1, 6), grays)]
+        self.volume = MultiVolume(self.volume_pool)
         self.trans = [-vol1.shape[2]/2., -vol1.shape[1]/2., -vol1.shape[0]/2.]
         self.volume.transform = scene.STTransform(translate=self.trans)
         self.view.add(self.volume)
 
         self.tr = self.volume.node_transform(self.view)  # ChainTransform
-
-        # print('self.tr.shape', self.tr)
 
         # Add a text instruction
         self.text = scene.visuals.Text('', color='white', pos=(self.canvas.size[0]/4.0,  20), parent=self.canvas.scene)
@@ -165,7 +169,7 @@ class DemoScene(QtGui.QWidget):
 
         # Set up for lasso drawing
         self.line_pos = []
-        self.line = scene.visuals.Line(color='green', method='gl', parent=self.canvas.scene)
+        self.line = scene.visuals.Line(color='yellow', method='gl', parent=self.canvas.scene)
 
         # Selection
         self.selection_flag = False
@@ -195,30 +199,19 @@ class DemoScene(QtGui.QWidget):
 
     def mark_selected(self):
         # Change the color of the selected point
-        # TODO: combine with multiple volume
         reds = get_translucent_cmap(1, 0, 0)
 
-        # self.selected = np.reshape(self.selected, self.voldata.shape)
-        # print('selected is', self.selected.shape, self.voldata.shape)
-        # reverse_shape = [self.voldata.shape[2], self.voldata.shape[1], self.voldata.shape[0]]
-        # select_data = np.zeros(self.voldata.shape)
-        select_data = np.transpose(self.voldata)
-
+        select_data = np.transpose(self.vol_data)
         not_select = np.logical_not(self.selected)
         np.place(select_data, not_select, 0)
-        # np.place(select_data, self.selected, 0)
-        # select_data = self.voldata[self.selected]
-        print('select data', select_data.shape, np.sum(select_data))
-        # Combine data
         select_data = np.transpose(select_data)
-        self.volume_pool.append((select_data, (0, 6), reds))
-        print('volume_pool', self.volume_pool)
-        # new_volume = MultiVolume([(select_data, (0, 6), reds)], parent=self.view.scene)
-        # new_volume.transform = scene.STTransform(translate=self.trans)
-        # self.volume.visible = False
-        # TODO: I need a set_data here, check the Glue-3d-viewer to see how the add subset work
-        # self.volume._update_all_volumes(self.volume_pool)
-        self.volume.set_data(select_data)
+
+        self.volume_pool.append((select_data, (1, 6), reds))
+
+        # TODO: no set_data function available in multi_volume_visual
+        self.volume._update_all_volumes(self.volume_pool)
+        print('self.volume_pool', len(self.volume_pool))
+        self.canvas.update()
 
     def on_key_press(self, event):
         # Set selection_flag and instruction text
@@ -256,33 +249,11 @@ class DemoScene(QtGui.QWidget):
         # Identify selected points and mark them
 
         if event.button == 1 and self.selection_flag and self.selection_id is not '4':
-            # self.facecolor[self.facecolor[:,1] != 1.0] = self.white
-            print(self.pos_data.dtype, self.pos_data.shape)
-            # Maybe the tr here is correct but volume visual
-            '''n = self.pos_data.shape[0]
-            P = np.zeros((n,3), dtype=np.float32)
-
-            X, Y, Z =  P[:,0],P[:,1],P[:,2]
-            X[...] = self.pos_data[:, 0]
-            Y[...] = self.pos_data[:, 1]
-            Z[...] = self.pos_data[:, 2]
-
-            X = np.transpose(X.reshape(self.voldata.shape)).flatten('F')
-            print('X', X)
-            Y = np.transpose(Y.reshape(self.voldata.shape)).flatten('F')
-            Z = np.transpose(Z.reshape(self.voldata.shape)).flatten('F')
-
-            # .reshape((53, 105, 105))
-            # self.pos_data = np.transpose(self.pos_data)
-            # self.pos_data.transpose to (105, 105, 53)
-            # data = self.tr.map(self.pos_data)[:, :2]'''
             data = self.tr.map(self.pos_data)[:, :2]
 
             if self.selection_id in ['1', '2', '3']:
                 selection_path = path.Path(self.line_pos, closed=True)
                 mask = selection_path.contains_points(data)
-
-                # mask = mask[::-1]
 
                 self.selected = mask
                 print('mask len', len(mask))
